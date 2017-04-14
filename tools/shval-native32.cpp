@@ -45,6 +45,7 @@ static double _relerr_threshold;
 #define SH_SET(V,X)     (V)=(X)
 #define SH_COPY(V,S)    (V)=(S)
 #define SH_OUTPUT(O,V)  O << fltstr(V,6)
+#define SH_FINI         ;
 
 #define SH_PACKED_TYPE  float
 #define SH_PACK(P,V)    (P)=(V)

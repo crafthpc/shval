@@ -75,6 +75,7 @@ static char _buf[BUF_SIZE];
 #define SH_SET(V,X)     d2ub(&(V),(X))
 #define SH_COPY(V,S)    ubnd_copy(&(V),&(S))
 #define SH_OUTPUT(O,V)  sprint_ub(_buf,&(V)); O << _buf
+#define SH_FINI         ;
 
 #define SH_PACKED_TYPE  ubnd_s
 #define SH_PACK(P,V)    assert("Unums are not supported in MPI yet.")

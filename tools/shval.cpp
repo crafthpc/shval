@@ -81,6 +81,7 @@
  * to be ";".
  *
  *  SH_INIT         initialization
+ *  SH_FINI         cleanup
  *
  *  SH_ALLOC(V)     allocate shadow value V (necessary if SH_TYPE is a ptr type)
  *  SH_FREE(V)      de-allocate shadow value V
@@ -3299,6 +3300,9 @@ VOID handleCleanup(INT32 code, VOID *v)
 
     // clean up shadow value table
     SHMEM_FINI;
+
+    // clean up shadow value data type
+    SH_FINI;
 }
 
 

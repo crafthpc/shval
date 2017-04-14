@@ -36,6 +36,7 @@
 #define SH_SET(V,X)     ;
 #define SH_COPY(V,S)    ;
 #define SH_OUTPUT(O,V)  ;
+#define SH_FINI         ;
 
 #define SH_PACKED_TYPE  char
 #define SH_PACK(P,V)    ;

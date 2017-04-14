@@ -63,6 +63,7 @@ static char _buf[BUF_SIZE];
 #define SH_SET(V,X)     mpfr_set_d((V),(X),GMP_RNDN)
 #define SH_COPY(V,S)    mpfr_set((V),(S),GMP_RNDN)
 #define SH_OUTPUT(O,V)  mpfr_snprintf(_buf,BUF_SIZE,"%.30Re",(V)); O << _buf
+#define SH_FINI         ;
 
 /*
  * "flattened" fixed-width data structure for MPI communication; basically, we
