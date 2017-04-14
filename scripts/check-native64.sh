@@ -26,9 +26,9 @@
 # 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 
-grep "Segmentation fault" native64-*/job*.out
-grep "unhandled" native64-*/job*.out
-grep "runtime mismatches" native64-*/job*.out
-grep "ERROR" native64-*/job*.out
-grep "reportable errors" native64-*/job*.out
+grep "Segmentation fault" native64-*/*.out
+grep "unhandled" native64-*/*.out
+grep "runtime mismatches" native64-*/*.out
+grep "ERROR" native64-*/*.out
+grep "reportable errors" native64-*/*.out
 

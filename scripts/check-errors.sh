@@ -27,7 +27,7 @@
 # 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 
-for f in native32-*/job*.out mpfr*-*/job*.out; do
+for f in native32-*/*.out mpfr*-*/*.out; do
     tag=${f%%/*}
     echo "$tag"
     grep "Checked" $f
