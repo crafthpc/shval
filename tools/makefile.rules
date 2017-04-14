@@ -60,6 +60,7 @@ UNUMPATH=../extern/unum
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
 TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-mpfr \
+    shval-trace \
     # shval-unum
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
@@ -122,6 +123,8 @@ SANITY_SUBSET := $(TEST_TOOL_ROOTS) $(TEST_ROOTS)
 $(OBJDIR)shval-native64$(OBJ_SUFFIX): shval-native64.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-native32$(OBJ_SUFFIX): shval-native32.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-trace$(OBJ_SUFFIX): shval-trace.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 
 # the null type raises some compiler warnings that we can safely ignore
