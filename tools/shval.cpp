@@ -1913,6 +1913,8 @@ VOID handleInstruction(INS ins, VOID *)
     case XED_ICLASS_VPSHUFD:        // shuffle 32-bit integers (see above)
     case XED_ICLASS_PUNPCKLBW:      // interleave low 16-bit integers
     case XED_ICLASS_PUNPCKHBW:      // interleave high 16-bit integers
+    case XED_ICLASS_PUNPCKLWD:      // interleave low 32-bit integers
+    case XED_ICLASS_PUNPCKHWD:      // interleave high 32-bit integers
     case XED_ICLASS_PUNPCKLDQ:      // interleave low 64-bit integers
     case XED_ICLASS_PUNPCKHDQ:      // interleave high 64-bit integers
     case XED_ICLASS_MOVAPS:         // move aligned packed 32-bit floats
