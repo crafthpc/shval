@@ -27,7 +27,9 @@
  * the width set to 128 bits
  */
 
+#include <cassert>
 #include <cstddef>
+#include <cstring>
 
 #include <math.h>
 #include <gmp.h>
@@ -43,6 +45,8 @@ KNOB<mpfr_prec_t> KnobNumBits(KNOB_MODE_WRITEONCE, "pintool",
 static double _relerr_threshold;
 static mpfr_prec_t _bits;
 
+#define MAX_PREC 256
+
 #define BUF_SIZE 128
 static char _buf[BUF_SIZE];
 
@@ -52,12 +56,54 @@ static char _buf[BUF_SIZE];
                          " threshold=" + fltstr(_relerr_threshold,4))
 
 #define SH_INIT         _bits = KnobNumBits.Value(); \
+                        assert(_bits < MAX_PREC); \
                         _relerr_threshold = KnobErrorThreshold.Value()
 #define SH_ALLOC(V)     mpfr_init2((V),_bits)
 #define SH_FREE(V)      mpfr_clear((V))
 #define SH_SET(V,X)     mpfr_set_d((V),(X),GMP_RNDN)
 #define SH_COPY(V,S)    mpfr_set((V),(S),GMP_RNDN)
 #define SH_OUTPUT(O,V)  mpfr_snprintf(_buf,BUF_SIZE,"%.30Re",(V)); O << _buf
+
+/*
+ * "flattened" fixed-width data structure for MPI communication; basically, we
+ * cap the number of "limbs" used for the arbitrary-precision significand
+ */
+typedef struct {
+    mpfr_prec_t prec;
+    mpfr_sign_t sign;
+    mp_exp_t    exp;
+    mp_limb_t   d[MAX_PREC];
+} _packed_mpfr;
+
+/*
+ * convert an mpfr_t to the packed representation
+ */
+_packed_mpfr _pack(mpfr_t x)
+{
+    _packed_mpfr px;
+    px.prec = x->_mpfr_prec;
+    px.sign = x->_mpfr_sign;
+    px.exp  = x->_mpfr_exp;
+    assert((px.prec+1) < MAX_PREC);
+    memcpy(px.d, x->_mpfr_d, mpfr_custom_get_size(px.prec));
+    return px;
+}
+
+/*
+ * convert the packed representation back to an mpfr_t
+ */
+void _unpack(mpfr_t x, _packed_mpfr px)
+{
+    mp_limb_t *limb = (mp_limb_t*)malloc(mpfr_custom_get_size(px.prec));
+    memcpy(limb, px.d, mpfr_custom_get_size(px.prec));
+    mpfr_clear(x);
+    mpfr_custom_init_set(x, (mpfr_kind_t)(MPFR_REGULAR_KIND*px.sign),
+            px.exp, px.prec, limb);
+}
+
+#define SH_PACKED_TYPE  _packed_mpfr
+#define SH_PACK(P,V)    (P)=_pack(V)
+#define SH_UNPACK(V,P)  _unpack(V,P)
 
 #define SH_ADD(V,S)     mpfr_add((V),(V),(S),GMP_RNDN)
 #define SH_SUB(V,S)     mpfr_sub((V),(V),(S),GMP_RNDN)

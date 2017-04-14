@@ -73,6 +73,7 @@
  * expand to a type definition usable for declaring shadow values.
  *
  *  SH_TYPE         shadow value type (used for shadow value tables)
+ *  SH_PACKED_TYPE  packed shadow value type (used for MPI communication)
  *
  * The following required macros are statements (i.e., their expansions are not
  * meant to be used in a larger expression). All macros should be defined; any
@@ -87,6 +88,9 @@
  *  SH_SET(V,X)     set shadow value V to X (double)
  *  SH_COPY(V,S)    set shadow value V equal to S (another shadow value)
  *  SH_OUTPUT(O,V)  convert V to string and print to ostream O
+ *
+ *  SH_PACK(P,V)    pack shadow value V into packed value P (for MPI send)
+ *  SH_UNPACK(V,P)  unpack value P into shadow value V (for MPI recv)
  *
  *  SH_ADD(V,S)     shadow value addition:       V = V + S
  *  SH_SUB(V,S)     shadow value subtraction:    V = V - S
@@ -158,6 +162,14 @@ using namespace std;
 extern "C" {
 #include "xed-interface.h"
 }
+
+/*
+ * optional: include MPI wrappers
+ */
+#if USE_MPI
+#include <mpi.h>
+#define MPI_SHVAL_TAG 999
+#endif
 
 /*
  * output filename placeholder
@@ -1213,6 +1225,872 @@ VOID shadowXORPD_Mem64(ADDRINT ins, UINT32 reg, const PIN_REGISTER *regv, const 
 }
 
 
+#if USE_MPI
+
+/******************************************************************************
+ *                              MPI DATA MOVEMENT
+ ******************************************************************************/
+
+typedef struct {
+    double  sys;
+    SH_PACKED_TYPE shv;
+} mpiPackedValue;
+
+/*
+ * pointers to MPI functions
+ */
+static AFUNPTR mpiCommRankPtr;
+static AFUNPTR mpiCommSizePtr;
+
+/*
+ * allocate temporary array of shadow values for MPI communication
+ */
+inline mpiPackedValue* shadowMPIAlloc(int count)
+{
+    mpiPackedValue *dest = (mpiPackedValue*)malloc(sizeof(mpiPackedValue) * count);
+    assert(dest != NULL);
+    return dest;
+}
+
+/*
+ * de-allocate temporary array
+ */
+inline void shadowMPIFree(mpiPackedValue *src, int count)
+{
+    free(src);
+}
+
+/*
+ * allocate and pack temporary array of shadow values for MPI communication
+ */
+inline mpiPackedValue* shadowMPIPack(void *src, int count)
+{
+    mpiPackedValue *dest = shadowMPIAlloc(count);
+    ADDRINT addr = (ADDRINT)src;
+    for (int i = 0; i < count; i++) {
+        dest[i].sys = *(double*)addr;
+        ensureMem64(addr);
+        SH_PACK(dest[i].shv, SHMEM_ACCESS(addr));
+        addr += 8;
+    }
+    return dest;
+}
+
+/*
+ * unpack and de-allocate temporary array into shadow value table
+ */
+inline void shadowMPIUnpack(void *dest, mpiPackedValue *src, int count)
+{
+    ADDRINT addr = (ADDRINT)dest;
+    for (int i = 0; i < count; i++) {
+        *(double*)addr = src[i].sys;
+        if (!SHMEM_IS_VALID(addr)) {
+            SH_ALLOC(SHMEM_ACCESS(addr));
+            SHMEM_SET_VALID(addr);
+        }
+        SH_UNPACK(SHMEM_ACCESS(addr), src[i].shv);
+        //SH_SET(SHMEM_ACCESS(addr), 0.0);    // for testing
+        addr += 8;
+    }
+    shadowMPIFree(src, count);
+}
+
+/*
+ * get the rank and size of the given communicator (used for some communication
+ * wrappers)
+ */
+inline int getMPICommRankSize(const CONTEXT *ctx, THREADID tid,
+        MPI_Comm comm, int *rank, int *size)
+{
+    int rval;
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, mpiCommRankPtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(MPI_Comm),     comm,
+            PIN_PARG(int*),         rank,
+            PIN_PARG_END());
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, mpiCommSizePtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(MPI_Comm),     comm,
+            PIN_PARG(int*),         size,
+            PIN_PARG_END());
+    return rval;
+}
+
+/*
+ * info about a non-blocking operations, stored so that the shadow values can be
+ * unpacked when the operation finishes
+ */
+typedef struct {
+    bool send;
+    void *buf;
+    mpiPackedValue *tmp;
+    int count;
+} mpiNonBlockOp;
+
+/*
+ * lookup table: maps MPI_Requests to corresponding shadow value information
+ * (used to clean up during the corresponding MPI_Wait calls)
+ */
+std::unordered_map<MPI_Request,mpiNonBlockOp> nonblockingOps;
+
+/*
+ * MPI wrappers
+ */
+
+int shadowMPISend(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *buf, int count, MPI_Datatype dt, int dest, int tag, MPI_Comm comm)
+{
+    int rval;   // return value
+
+    // if double precision, pack and send shadow values too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        //printf("Shadowing MPI_Send (count=%d, dest=%d, tag=%d)\n", count, dest, tag);
+        mpiPackedValue *tmp = shadowMPIPack(buf, count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        tmp,
+                PIN_PARG(int),          count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+        shadowMPIFree(tmp, count);
+
+    // otherwise, just call MPI_Send with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIRecv(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *buf, int count, MPI_Datatype dt, int src, int tag, MPI_Comm comm, MPI_Status *status)
+{
+    int rval;   // return value
+
+    // if double precision, receive and unpack shadow data too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        //printf("Shadowing MPI_Recv (count=%d, src=%d, tag=%d)\n", count, src, tag);
+        mpiPackedValue *tmp = shadowMPIAlloc(count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        tmp,
+                PIN_PARG(int),          count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          src,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Status*),  NULL,
+                PIN_PARG_END());
+        shadowMPIUnpack(buf, tmp, count);
+
+    // otherwise, just call MPI_Recv with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(int),          src,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Status*),  status,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPISendrecv(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, int send_count, MPI_Datatype send_dt, int dest,   int send_tag,
+        void *recv_buf, int recv_count, MPI_Datatype recv_dt, int source, int recv_tag,
+        MPI_Comm comm, MPI_Status *status)
+{
+    int rval;   // return value
+
+    // if double precision, pack and send shadow values too
+    if (send_dt == MPI_DOUBLE || send_dt == MPI_DOUBLE_PRECISION) {
+        //printf("Shadowing MPI_Sendrecv (count=%d, tag=%d)\n", send_count, send_tag);
+        mpiPackedValue *src = shadowMPIPack(send_buf, send_count);
+        mpiPackedValue *dst = shadowMPIAlloc(recv_count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        src,
+                PIN_PARG(int),          send_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          send_tag,
+                PIN_PARG(void*),        dst,
+                PIN_PARG(int),          recv_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          source,
+                PIN_PARG(int),          recv_tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Status*),  status,
+                PIN_PARG_END());
+        shadowMPIFree(src, send_count);
+        shadowMPIUnpack(recv_buf, dst, recv_count);
+
+    // otherwise, just call MPI_Send with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(int),          send_count,
+                PIN_PARG(MPI_Datatype), send_dt,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          send_tag,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          recv_count,
+                PIN_PARG(MPI_Datatype), recv_dt,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          recv_tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Status*),  status,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIIsend(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *buf, int count, MPI_Datatype dt, int dest, int tag, MPI_Comm comm, MPI_Request *rq)
+{
+    int rval;   // return value
+
+    // if double precision, pack and send shadow values too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        mpiPackedValue *tmp = shadowMPIPack(buf, count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        tmp,
+                PIN_PARG(int),          count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Request*), rq,
+                PIN_PARG_END());
+        //printf("Shadowed MPI_Isend (count=%d, dest=%d, tag=%d, rq=%ld)\n", count, dest, tag, (long)*rq);
+        mpiNonBlockOp info;
+        info.send = true;
+        info.buf = buf;
+        info.tmp = tmp;
+        info.count = count;
+        nonblockingOps[*rq] = info;
+
+    // otherwise, just call MPI_Isend with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(int),          dest,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Request*), rq,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIIrecv(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *buf, int count, MPI_Datatype dt, int src, int tag, MPI_Comm comm, MPI_Request *rq)
+{
+    int rval;   // return value
+
+    // if double precision, receive and unpack shadow data too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        mpiPackedValue *tmp = shadowMPIAlloc(count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        tmp,
+                PIN_PARG(int),          count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          src,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Request*), rq,
+                PIN_PARG_END());
+        //printf("Shadowed MPI_Irecv (count=%d, src=%d, tag=%d, rq=%ld)\n", count, src, tag, (long)*rq);
+        mpiNonBlockOp info;
+        info.send = false;
+        info.buf = buf;
+        info.tmp = tmp;
+        info.count = count;
+        nonblockingOps[*rq] = info;
+
+    // otherwise, just call MPI_Irecv with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(int),          src,
+                PIN_PARG(int),          tag,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG(MPI_Request*), rq,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIWait(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        MPI_Request *rq, MPI_Status *status)
+{
+    int rval;   // return value
+
+    // save old request number ("rq" gets overwritten by wrapped call)
+    MPI_Request oldRq = *rq;
+
+    // call original
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(MPI_Request*), rq,
+            PIN_PARG(MPI_Status*),  status,
+            PIN_PARG_END());
+
+    // if double precision, unpack shadow values too
+    if (nonblockingOps.find(oldRq) != nonblockingOps.end()) {
+        mpiNonBlockOp info = nonblockingOps[oldRq];
+        //printf("Shadowing MPI_Wait (rq=%ld, count=%d)\n", (long)oldRq, info.count);
+        if (info.send) {
+            shadowMPIFree(info.tmp, info.count);
+        } else {
+            shadowMPIUnpack(info.buf, info.tmp, info.count);
+        }
+        nonblockingOps.erase(oldRq);
+    }
+
+    return rval;
+}
+
+
+int shadowMPIBcast(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *buf, int count, MPI_Datatype dt, int root, MPI_Comm comm)
+{
+    int rval;   // original return value
+
+    // if double precision, pack and broadcast shadow values too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        //printf("Shadowing MPI_Bcast (count=%d, root=%d)\n", count, root);
+        mpiPackedValue *tmp = shadowMPIPack(buf, count);
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        tmp,
+                PIN_PARG(int),          count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+        shadowMPIUnpack(buf, tmp, count);
+
+    // otherwise, just call MPI_Bcast with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIScatter(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, int send_count, MPI_Datatype send_dt,
+        void *recv_buf, int recv_count, MPI_Datatype recv_dt,
+        int root, MPI_Comm comm)
+{
+    int rval;   // return value
+
+    // if double precision, pack and gather shadow values too
+    if (send_dt == MPI_DOUBLE || send_dt == MPI_DOUBLE_PRECISION) {
+        int mpiRank, mpiSize;
+        getMPICommRankSize(ctx, tid, comm, &mpiRank, &mpiSize);
+        //printf("Shadowing MPI_Scatter (rank=%d, size=%d, send=%d, recv=%d)\n",
+                //mpiRank, mpiSize, send_count, recv_count);
+
+        // pack outgoing shadow values and allocate incoming array
+        mpiPackedValue *src = NULL, *dst = shadowMPIAlloc(recv_count);
+        if (mpiRank == root) {
+            src = shadowMPIPack(send_buf, send_count * mpiSize);
+        }
+
+        // send out shadow values from root
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        src,
+                PIN_PARG(int),          send_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(void*),        dst,
+                PIN_PARG(int),          recv_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        // unpack shadow values
+        if (mpiRank == root) {
+            shadowMPIFree(src, send_count * mpiSize);
+        }
+        shadowMPIUnpack(recv_buf, dst, recv_count);
+
+    // otherwise, just call MPI_Scatter with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(int),          send_count,
+                PIN_PARG(MPI_Datatype), send_dt,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          recv_count,
+                PIN_PARG(MPI_Datatype), recv_dt,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIGather(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, int send_count, MPI_Datatype send_dt,
+        void *recv_buf, int recv_count, MPI_Datatype recv_dt,
+        int root, MPI_Comm comm)
+{
+    int rval;   // return value
+
+    // if double precision, pack and gather shadow values too
+    if (send_dt == MPI_DOUBLE || send_dt == MPI_DOUBLE_PRECISION) {
+        int mpiRank, mpiSize;
+        getMPICommRankSize(ctx, tid, comm, &mpiRank, &mpiSize);
+        //printf("Shadowing MPI_Gather (rank=%d, size=%d, send=%d, recv=%d)\n",
+                //mpiRank, mpiSize, send_count, recv_count);
+
+        // pack outgoing shadow values and allocate incoming array
+        mpiPackedValue *src, *dst = NULL;
+        src = shadowMPIPack(send_buf, send_count);
+        if (mpiRank == root) {
+            dst = shadowMPIAlloc(recv_count * mpiSize);
+        }
+
+        // collect shadow values at root
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        src,
+                PIN_PARG(int),          send_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(void*),        dst,
+                PIN_PARG(int),          recv_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        // unpack shadow values at root
+        shadowMPIFree(src, send_count);
+        if (mpiRank == root) {
+            shadowMPIUnpack(recv_buf, dst, recv_count * mpiSize);
+        }
+
+    // otherwise, just call MPI_Gather with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(int),          send_count,
+                PIN_PARG(MPI_Datatype), send_dt,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          recv_count,
+                PIN_PARG(MPI_Datatype), recv_dt,
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIAllgather(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, int send_count, MPI_Datatype send_dt,
+        void *recv_buf, int recv_count, MPI_Datatype recv_dt, MPI_Comm comm)
+{
+    int rval;   // return value
+
+    // if double precision, pack and gather shadow values too
+    if (send_dt == MPI_DOUBLE || send_dt == MPI_DOUBLE_PRECISION) {
+        int mpiRank, mpiSize;
+        getMPICommRankSize(ctx, tid, comm, &mpiRank, &mpiSize);
+        //printf("Shadowing MPI_Allgather (rank=%d, size=%d, send=%d, recv=%d)\n",
+                //mpiRank, mpiSize, send_count, recv_count);
+
+        // pack outgoing shadow values and allocate incoming array
+        mpiPackedValue *src, *dst;
+        src = shadowMPIPack(send_buf, send_count);
+        dst = shadowMPIAlloc(recv_count * mpiSize);
+
+        // collect shadow values too
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        src,
+                PIN_PARG(int),          send_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(void*),        dst,
+                PIN_PARG(int),          recv_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        // unpack shadow values
+        shadowMPIFree(src, send_count);
+        shadowMPIUnpack(recv_buf, dst, recv_count * mpiSize);
+
+    // otherwise, just call MPI_Gather with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(int),          send_count,
+                PIN_PARG(MPI_Datatype), send_dt,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          recv_count,
+                PIN_PARG(MPI_Datatype), recv_dt,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIAlltoall(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, int send_count, MPI_Datatype send_dt,
+        void *recv_buf, int recv_count, MPI_Datatype recv_dt, MPI_Comm comm)
+{
+    int rval;   // return value
+
+    // if double precision, pack and gather shadow values too
+    if (send_dt == MPI_DOUBLE || send_dt == MPI_DOUBLE_PRECISION) {
+        int mpiRank, mpiSize;
+        getMPICommRankSize(ctx, tid, comm, &mpiRank, &mpiSize);
+        //printf("Shadowing MPI_Alltoall (rank=%d, size=%d, send=%d, recv=%d)\n",
+                //mpiRank, mpiSize, send_count, recv_count);
+
+        // pack outgoing shadow values and allocate incoming array
+        mpiPackedValue *src, *dst;
+        src = shadowMPIPack(send_buf, send_count * mpiSize);
+        dst = shadowMPIAlloc(recv_count * mpiSize);
+
+        // collect shadow values too
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        src,
+                PIN_PARG(int),          send_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(void*),        dst,
+                PIN_PARG(int),          recv_count * sizeof(mpiPackedValue),
+                PIN_PARG(MPI_Datatype), MPI_BYTE,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        // unpack shadow values
+        shadowMPIFree(src, send_count * mpiSize);
+        shadowMPIUnpack(recv_buf, dst, recv_count * mpiSize);
+
+    // otherwise, just call MPI_Gather with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(int),          send_count,
+                PIN_PARG(MPI_Datatype), send_dt,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          recv_count,
+                PIN_PARG(MPI_Datatype), recv_dt,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+
+
+/******************************************************************************
+ *                               MPI REDUCTIONS
+ ******************************************************************************/
+
+/*
+ * pointers to MPI functions
+ */
+static AFUNPTR mpiOpCreatePtr;
+static AFUNPTR mpiTypeContiguousPtr;
+
+/*
+ * MPI shadow operations
+ */
+static MPI_Op shadowMax  = 0;
+static MPI_Op shadowMin  = 0;
+static MPI_Op shadowSum  = 0;
+static MPI_Op shadowProd = 0;
+
+/*
+ * MPI shadow data type
+ */
+static MPI_Datatype shadowType = 0;
+
+/*
+ * shadow reduction operations
+ */
+void shadowMPIOpMax(void *invec, void *inoutvec, int *len, MPI_Datatype *dt)
+{
+    mpiPackedValue *dest = (mpiPackedValue*)inoutvec;
+    mpiPackedValue *src  = (mpiPackedValue*)invec;
+    int count = (*len);
+    for (int i = 0; i < count; i++) {
+        dest->sys = (dest->sys < src->sys ? src->sys : dest->sys);
+        SH_TYPE t1, t2;
+        SH_ALLOC(t1); SH_ALLOC(t2);
+        SH_UNPACK(t1, dest->shv);
+        SH_UNPACK(t2, src->shv);
+        SH_MAX(t1, t2);
+        SH_PACK(dest->shv, t1);
+        SH_FREE(t1); SH_FREE(t2);
+        dest++;
+        src++;
+    }
+}
+void shadowMPIOpMin(void *invec, void *inoutvec, int *len, MPI_Datatype *dt)
+{
+    mpiPackedValue *dest = (mpiPackedValue*)inoutvec;
+    mpiPackedValue *src  = (mpiPackedValue*)invec;
+    int count = (*len);
+    for (int i = 0; i < count; i++) {
+        dest->sys = (dest->sys > src->sys ? src->sys : dest->sys);
+        SH_TYPE t1, t2;
+        SH_ALLOC(t1); SH_ALLOC(t2);
+        SH_UNPACK(t1, dest->shv);
+        SH_UNPACK(t2, src->shv);
+        SH_MIN(t1, t2);
+        SH_PACK(dest->shv, t1);
+        SH_FREE(t1); SH_FREE(t2);
+        dest++;
+        src++;
+    }
+}
+void shadowMPIOpSum(void *invec, void *inoutvec, int *len, MPI_Datatype *dt)
+{
+    mpiPackedValue *dest = (mpiPackedValue*)inoutvec;
+    mpiPackedValue *src  = (mpiPackedValue*)invec;
+    int count = (*len);
+    for (int i = 0; i < count; i++) {
+        dest->sys += src->sys;
+        SH_TYPE t1, t2;
+        SH_ALLOC(t1); SH_ALLOC(t2);
+        SH_UNPACK(t1, dest->shv);
+        SH_UNPACK(t2, src->shv);
+        SH_ADD(t1, t2);
+        SH_PACK(dest->shv, t1);
+        SH_FREE(t1); SH_FREE(t2);
+        //SH_SET(dest->shv, 0.0);       // for testing
+        dest++;
+        src++;
+    }
+}
+void shadowMPIOpProd(void *invec, void *inoutvec, int *len, MPI_Datatype *dt)
+{
+    mpiPackedValue *dest = (mpiPackedValue*)inoutvec;
+    mpiPackedValue *src  = (mpiPackedValue*)invec;
+    int count = (*len);
+    for (int i = 0; i < count; i++) {
+        dest->sys *= src->sys;
+        SH_TYPE t1, t2;
+        SH_ALLOC(t1); SH_ALLOC(t2);
+        SH_UNPACK(t1, dest->shv);
+        SH_UNPACK(t2, src->shv);
+        SH_MUL(t1, t2);
+        SH_PACK(dest->shv, t1);
+        SH_FREE(t1); SH_FREE(t2);
+        dest++;
+        src++;
+    }
+}
+
+/*
+ * call init on MPI user-defined shadow value type and operations
+ */
+inline void initializeMPIOps(const CONTEXT *ctx, THREADID tid)
+{
+    int rval;
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT,
+            mpiTypeContiguousPtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(int),          sizeof(mpiPackedValue),
+            PIN_PARG(MPI_Datatype), MPI_BYTE,
+            PIN_PARG(MPI_Datatype*),&shadowType,
+            PIN_PARG_END());
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT,
+            mpiOpCreatePtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(void*),        &shadowMPIOpMax,
+            PIN_PARG(int),          0,                  // commute = false
+            PIN_PARG(MPI_Op*),      &shadowMax,
+            PIN_PARG_END());
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT,
+            mpiOpCreatePtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(void*),        &shadowMPIOpMin,
+            PIN_PARG(int),          0,                  // commute = false
+            PIN_PARG(MPI_Op*),      &shadowMin,
+            PIN_PARG_END());
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT,
+            mpiOpCreatePtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(void*),        &shadowMPIOpSum,
+            PIN_PARG(int),          0,                  // commute = false
+            PIN_PARG(MPI_Op*),      &shadowSum,
+            PIN_PARG_END());
+    PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT,
+            mpiOpCreatePtr, NULL,
+            PIN_PARG(int),          &rval,
+            PIN_PARG(void*),        &shadowMPIOpProd,
+            PIN_PARG(int),          0,                  // commute = false
+            PIN_PARG(MPI_Op*),      &shadowProd,
+            PIN_PARG_END());
+    LOG("Registered custom MPI reduction type and operations.\n");
+}
+
+/*
+ * translate between standard MPI reduction ops and shadow reduction ops
+ */
+inline MPI_Op getShadowMPIOp(MPI_Op op)
+{
+    MPI_Op rval = 0;
+    switch (op) {
+        case MPI_MAX:   rval = shadowMax;       break;
+        case MPI_MIN:   rval = shadowMin;       break;
+        case MPI_SUM:   rval = shadowSum;       break;
+        case MPI_PROD:  rval = shadowProd;      break;
+        default:        assert(!"Unsupported reduction operator");  break;
+    }
+    return rval;
+}
+
+/*
+ * MPI wrappers
+ */
+
+int shadowMPIAllreduce(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, void *recv_buf, int count, MPI_Datatype dt, MPI_Op op, MPI_Comm comm)
+{
+    int rval;   // original return value
+
+    // if double precision, reduce shadow values too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        if (shadowSum == 0) {
+            initializeMPIOps(ctx, tid);
+        }
+
+        //printf("Shadowing MPI_Allreduce (count=%d, op=%d)\n", count, op);
+
+        // copy shadow values into (packed) temporary source array and
+        // initialize temporary destination array
+        mpiPackedValue *src  = shadowMPIPack(send_buf, count);
+        mpiPackedValue *dest = shadowMPIAlloc(count);
+
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        (void*)src,
+                PIN_PARG(void*),        (void*)dest,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), shadowType,
+                PIN_PARG(MPI_Op),       getShadowMPIOp(op),
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        shadowMPIFree(src, count);
+        shadowMPIUnpack(recv_buf, dest, count);
+
+    // otherwise, just call MPI_Allreduce with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(MPI_Op),       op,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+int shadowMPIReduce(const CONTEXT *ctx, THREADID tid, AFUNPTR origFunPtr,
+        void *send_buf, void *recv_buf, int count, MPI_Datatype dt, MPI_Op op, int root, MPI_Comm comm)
+{
+    int rval;   // original return value
+
+    // if double precision, reduce shadow values too
+    if (dt == MPI_DOUBLE || dt == MPI_DOUBLE_PRECISION) {
+        if (shadowSum == 0) {
+            initializeMPIOps(ctx, tid);
+        }
+
+        int mpiRank, mpiSize;
+        getMPICommRankSize(ctx, tid, comm, &mpiRank, &mpiSize);
+
+        //printf("Shadowing MPI_Reduce (count=%d, op=%d, root=%d)\n", count, op, root);
+
+        // copy shadow values into (packed) temporary source array and
+        // initialize temporary destination array if we're the root
+        mpiPackedValue *src  = shadowMPIPack(send_buf, count);
+        mpiPackedValue *dest = NULL;
+        if (mpiRank == root) {
+            dest = shadowMPIAlloc(count);
+        }
+
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        (void*)src,
+                PIN_PARG(void*),        (void*)dest,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), shadowType,
+                PIN_PARG(MPI_Op),       getShadowMPIOp(op),
+                PIN_PARG(int),          root,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+
+        shadowMPIFree(src, count);
+        if (mpiRank == root) {
+            shadowMPIUnpack(recv_buf, dest, count);
+        }
+
+    // otherwise, just call MPI_Reduce with original parameters
+    } else {
+        PIN_CallApplicationFunction(ctx, tid, CALLINGSTD_DEFAULT, origFunPtr, NULL,
+                PIN_PARG(int),          &rval,
+                PIN_PARG(void*),        send_buf,
+                PIN_PARG(void*),        recv_buf,
+                PIN_PARG(int),          count,
+                PIN_PARG(MPI_Datatype), dt,
+                PIN_PARG(MPI_Op),       op,
+                PIN_PARG(MPI_Comm),     comm,
+                PIN_PARG_END());
+    }
+    return rval;
+}
+
+#endif  // USE_MPI
+
+
 /******************************************************************************
  *                        INSTRUMENTATION ROUTINES
  ******************************************************************************/
@@ -1253,6 +2131,13 @@ VOID handleImage(IMG img, VOID *)
 
         // open output file
         outFile.open(outFilename.c_str());
+#if USE_MPI
+    } else if (IMG_Name(img).find("libmpi") != string::npos) {
+        mpiCommRankPtr = (AFUNPTR)RTN_Address(RTN_FindByName(img, "MPI_Comm_rank"));
+        mpiCommSizePtr = (AFUNPTR)RTN_Address(RTN_FindByName(img, "MPI_Comm_size"));
+        mpiOpCreatePtr = (AFUNPTR)RTN_Address(RTN_FindByName(img, "MPI_Op_create"));
+        mpiTypeContiguousPtr = (AFUNPTR)RTN_Address(RTN_FindByName(img, "MPI_Type_contiguous"));
+#endif
     }
 }
 
@@ -1284,7 +2169,124 @@ VOID reportShadowValue(ADDRINT, ADDRINT);
 VOID reportShadowArray(ADDRINT, UINT64, ADDRINT);
 
 /*
- * replace malloc and free (and related function)
+ * helper for inserting function-based calls
+ */
+void insertRtnCall(RTN rtn, IPOINT action, AFUNPTR func, int numArgs)
+{
+    RTN_Open(rtn);
+    switch (numArgs) {
+        case 0:
+            RTN_InsertCall(rtn, action, func, IARG_END);
+            break;
+        case 1:
+            RTN_InsertCall(rtn, action, func,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
+            break;
+        case 2:
+            RTN_InsertCall(rtn, action, func,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_END);
+            break;
+        case 3:
+            RTN_InsertCall(rtn, action, func,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_END);
+            break;
+        default:
+            assert(!"Too many arguments!");
+            break;
+    }
+    RTN_Close(rtn);
+}
+
+/*
+ * helper for wrapping functions
+ */
+void replaceRtn(RTN rtn, AFUNPTR func, int numArgs)
+{
+    switch (numArgs) {
+        case 2:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_END);
+            break;
+        case 5:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                    IARG_END);
+            break;
+        case 6:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5,
+                    IARG_END);
+            break;
+        case 7:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 6,
+                    IARG_END);
+           break;
+        case 8:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 6,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 7,
+                    IARG_END);
+           break;
+        case 12:
+            RTN_ReplaceSignature(rtn, func,
+                    IARG_CONST_CONTEXT, IARG_THREAD_ID, IARG_ORIG_FUNCPTR,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 3,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 4,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 5,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 6,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 7,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 8,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 9,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 10,
+                    IARG_FUNCARG_ENTRYPOINT_VALUE, 11,
+                    IARG_END);
+           break;
+        default:
+            assert(!"Too many arguments!");
+            break;
+    }
+}
+
+/*
+ * replace or wrap functions related to memory management, reporting, and MPI
+ * communication
  */
 VOID handleRoutine(RTN rtn, VOID *)
 {
@@ -1302,29 +2304,42 @@ VOID handleRoutine(RTN rtn, VOID *)
         insertAllocCalls(rtn, (AFUNPTR)SHVAL_realloc_entry,
                 (AFUNPTR)SHVAL_realloc_exit, true);
     } else if (name == "free" || name == "__libc_free") {
-        RTN_Open(rtn);
-        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)SHVAL_free,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0, IARG_END);
-        RTN_Close(rtn);
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)SHVAL_free, 1);
     } else if (name == "SHVAL_reportShadowValue") {
-        RTN_Open(rtn);
-        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowValue,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1, IARG_END);
-        RTN_Close(rtn);
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowValue, 2);
     } else if (name == "SHVAL_reportShadowArray") {
-        RTN_Open(rtn);
-        RTN_InsertCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowArray,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
-                IARG_FUNCARG_ENTRYPOINT_VALUE, 2, IARG_END);
-        RTN_Close(rtn);
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowArray, 3);
     } else if (name == KnobReportFunction.Value()) {
         LOG("Reporting shadow values after function \"" + name + "\"\n");
-        RTN_Open(rtn);
-        RTN_InsertCall(rtn, IPOINT_AFTER,
-                (AFUNPTR)reportShadowValues, IARG_END);
-        RTN_Close(rtn);
+        insertRtnCall(rtn, IPOINT_AFTER, (AFUNPTR)reportShadowValues, 0);
+#if USE_MPI
+    } else if (name == "MPI_Send"      || name == "PMPI_Send") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPISend, 6);
+    } else if (name == "MPI_Recv"      || name == "PMPI_Recv") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIRecv, 7);
+    } else if (name == "MPI_Sendrecv"  || name == "PMPI_Sendrecv") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPISendrecv, 12);
+    } else if (name == "MPI_Isend"     || name == "PMPI_Isend") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIIsend, 7);
+    } else if (name == "MPI_Irecv"     || name == "PMPI_Irecv") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIIrecv, 7);
+    } else if (name == "MPI_Wait"      || name == "PMPI_Wait") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIWait, 2);
+    } else if (name == "MPI_Bcast"     || name == "PMPI_Bcast") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIBcast, 5);
+    } else if (name == "MPI_Scatter"   || name == "PMPI_Scatter") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIScatter, 8);
+    } else if (name == "MPI_Gather"    || name == "PMPI_Gather") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIGather, 8);
+    } else if (name == "MPI_Allgather" || name == "PMPI_Allgather") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIAllgather, 7);
+    } else if (name == "MPI_Alltoall"  || name == "PMPI_Alltoall") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIAlltoall, 7);
+    } else if (name == "MPI_Allreduce" || name == "PMPI_Allreduce") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIAllreduce, 6);
+    } else if (name == "MPI_Reduce"    || name == "PMPI_Reduce") {
+        replaceRtn(rtn, (AFUNPTR)shadowMPIReduce, 7);
+#endif
     }
 }
 
@@ -1643,6 +2658,20 @@ VOID handleInstruction(INS ins, VOID *)
     // skip invalid images
     IMG image = SEC_Img(RTN_Sec(routine));
     if (!IMG_Valid(image)) {
+        return;
+    }
+
+    // skip MPI and other low-level system libraries
+    string libname = IMG_Name(image);
+    if (libname.find("libmpich.so") != string::npos ||
+        libname.find("ld-linux") != string::npos ||
+        libname.find("libdl.so") != string::npos ||
+        libname.find("libc.so") != string::npos ||
+        libname.find("librt.so") != string::npos ||
+        libname.find("libnss") != string::npos ||
+        libname.find("libpthread.so") != string::npos ||
+        libname.find("libmunge.so") != string::npos ||
+        libname.find("infinipath.so") != string::npos) {
         return;
     }
 

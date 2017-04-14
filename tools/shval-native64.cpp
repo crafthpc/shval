@@ -39,6 +39,10 @@
 #define SH_COPY(V,S)    (V)=(S)
 #define SH_OUTPUT(O,V)  O << fltstr(V,15)
 
+#define SH_PACKED_TYPE  double
+#define SH_PACK(P,V)    (P)=(V)
+#define SH_UNPACK(V,P)  (V)=(P)
+
 #define SH_ADD(V,S)     (V)=((V)+(S))
 #define SH_SUB(V,S)     (V)=((V)-(S))
 #define SH_MUL(V,S)     (V)=((V)*(S))
