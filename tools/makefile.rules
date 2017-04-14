@@ -1,0 +1,116 @@
+# Copyright (c) 2017, Lawrence Livermore National Security, LLC.
+# Produced at the Lawrence Livermore National Laboratory.
+# Written by Michael O. Lam, lam26@llnl.gov. LLNL-CODE-729118.
+# All rights reserved.
+#
+# This file is part of SHVAL. For details, see https://github.com/lam2mo/shval
+#
+# Please also see the LICENSE file for our notice and the LGPL.
+#
+# This program is free software; you can redistribute it and/or modify it under
+# the terms of the GNU General Public License (as published by the Free
+# Software Foundation) version 2.1 dated February 1999.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the IMPLIED WARRANTY OF MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the terms and conditions of the GNU General
+# Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program; if not, write to the Free Software Foundation, Inc.,
+# 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+#
+
+##############################################################
+#
+# This file includes all the test targets as well as all the
+# non-default build rules and test recipes.
+#
+##############################################################
+
+
+##############################################################
+#
+# Test targets
+#
+##############################################################
+
+###### Place all generic definitions here ######
+
+# This defines tests which run tools of the same name.  This is simply for convenience to avoid
+# defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
+# Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
+TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-mpfr
+
+# This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
+TEST_ROOTS :=
+
+# This defines the tools which will be run during the the tests, and were not already defined in
+# TEST_TOOL_ROOTS.
+TOOL_ROOTS :=
+
+# This defines the static analysis tools which will be run during the the tests. They should not
+# be defined in TEST_TOOL_ROOTS. If a test with the same name exists, it should be defined in
+# TEST_ROOTS.
+# Note: Static analysis tools are in fact executables linked with the Pin Static Analysis Library.
+# This library provides a subset of the Pin APIs which allows the tool to perform static analysis
+# of an application or dll. Pin itself is not used when this tool runs.
+SA_TOOL_ROOTS :=
+
+# This defines all the applications that will be run during the tests.
+APP_ROOTS := trun
+
+# This defines any additional object files that need to be compiled.
+OBJECT_ROOTS :=
+
+# This defines any additional dlls (shared objects), other than the pintools, that need to be compiled.
+DLL_ROOTS :=
+
+# This defines any static libraries (archives), that need to be built.
+LIB_ROOTS :=
+
+###### Define the sanity subset ######
+
+# This defines the list of tests that should run in sanity. It should include all the tests listed in
+# TEST_TOOL_ROOTS and TEST_ROOTS excluding only unstable tests.
+SANITY_SUBSET := $(TEST_TOOL_ROOTS) $(TEST_ROOTS)
+
+
+##############################################################
+#
+# Test recipes
+#
+##############################################################
+
+# This section contains recipes for tests other than the default.
+# See makefile.default.rules for the default test rules.
+# All tests in this section should adhere to the naming convention: <testname>.test
+
+
+##############################################################
+#
+# Build rules
+#
+##############################################################
+
+# This section contains the build rules for all binaries that have special build rules.
+# See makefile.default.rules for the default build rules.
+
+# all shadow value tools need special rules because they use C++11 features
+
+# these types are pretty standard
+$(OBJDIR)shval-native64$(OBJ_SUFFIX): shval-native64.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-native32$(OBJ_SUFFIX): shval-native32.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+
+# the null type raises some compiler warnings that we can safely ignore
+$(OBJDIR)shval-null$(OBJ_SUFFIX): shval-null.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 -Wno-unused-variable $(COMP_OBJ)$@ $<
+
+# MPFR needs special linking options
+$(OBJDIR)shval-mpfr$(OBJ_SUFFIX): shval-mpfr.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-mpfr$(PINTOOL_SUFFIX): $(OBJDIR)shval-mpfr$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -lmpfr -lgmp
+
