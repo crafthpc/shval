@@ -1,0 +1,4 @@
+main
+*.log
+trace.dot
+trace.png
