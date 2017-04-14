@@ -1,7 +1,7 @@
 # should point to Pin installation
 PIN_ROOT=$(HOME)/opt/pin-2.14-71313-gcc.4.4.7-linux
 
-TOOL_PATH=../tools
+TOOL_PATH=../../tools
 
 PIN=$(PIN_ROOT)/pin
 FLAGS=-s
