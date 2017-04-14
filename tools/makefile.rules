@@ -40,6 +40,16 @@
 
 ##############################################################
 #
+# To build the Unum tool, make sure you have the Unum library built using -fPIC
+# (e.g., "CFLAGS=-fPIC ./configure"), set the following path appropriately, then
+# uncomment the "shval-unum" line for TEST_TOOL_ROOTS in the section below.
+#
+##############################################################
+
+UNUMPATH=../extern/unum
+
+##############################################################
+#
 # Test targets
 #
 ##############################################################
@@ -49,7 +59,8 @@
 # This defines tests which run tools of the same name.  This is simply for convenience to avoid
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
-TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-mpfr
+TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-mpfr \
+    # shval-unum
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=
@@ -123,3 +134,8 @@ $(OBJDIR)shval-mpfr$(OBJ_SUFFIX): shval-mpfr.cpp shval.cpp
 $(OBJDIR)shval-mpfr$(PINTOOL_SUFFIX): $(OBJDIR)shval-mpfr$(OBJ_SUFFIX)
 	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -lmpfr -lgmp
 
+# Unum library needs special linking options
+$(OBJDIR)shval-unum$(OBJ_SUFFIX): shval-unum.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) -I$(UNUMPATH)/src -I$(GMPPATH)/include --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-unum$(PINTOOL_SUFFIX): $(OBJDIR)shval-unum$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) -L$(GMPPATH)/lib $(TOOL_LIBS) $(UNUMPATH)/src/libunum.a -lgmp

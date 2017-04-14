@@ -16,6 +16,14 @@ run: main
 	@$(PIN) -t $(TOOL_PATH)/obj-intel64/shval-native64.so $(FLAGS) -- ./main
 	@echo -e "\n===  GNU MPFR 128-bit floating point  ==="
 	@$(PIN) -t $(TOOL_PATH)/obj-intel64/shval-mpfr.so     $(FLAGS) -- ./main
+	#
+	# UNCOMMENT THE FOLLOWING LINES TO RUN UNUM TESTS
+	#@echo -e "\n===  Unums w/ (3,2) environment  ==="
+	#@$(PIN) -t $(TOOL_PATH)/obj-intel64/shval-unum.so $(FLAGS) -ess 3 -fss 2 -- ./main
+	#@echo -e "\n===  Unums w/ (3,4) environment  ==="
+	#@$(PIN) -t $(TOOL_PATH)/obj-intel64/shval-unum.so $(FLAGS) -ess 3 -fss 4 -- ./main
+	#@echo -e "\n===  Unums w/ (4,6) environment  ==="
+	#@$(PIN) -t $(TOOL_PATH)/obj-intel64/shval-unum.so $(FLAGS) -ess 4 -fss 6 -- ./main
 
 main: main.c
 	gcc -g -O1 -I$(TOOL_PATH) -o main main.c $(TOOL_PATH)/obj-intel64/shvalrt.a
