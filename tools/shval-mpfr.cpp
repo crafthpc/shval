@@ -81,7 +81,7 @@ inline double _relerr(mpfr_t v, double x)
     double tru = (_bits > 64) ? shv : x;
 
     if (tru == 0.0) {
-        return fabs(x - shv);
+        return (shv == 0.0 ? 0.0 : 1.0);
     } else {
         return fabs(x - shv) / tru;
     }

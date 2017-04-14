@@ -54,7 +54,7 @@
 
 inline double _relerr(double v, double x)
 {
-    return ((x == 0.0) ? (fabs((double)x-v)) : (fabs((double)x-v) / fabs(x)));
+    return ((x == 0.0) ? (v == 0.0 ? 0.0 : 1.0) : (fabs((double)x-v) / fabs(x)));
 }
 
 // native64 only: must match exactly or both be NaNs
