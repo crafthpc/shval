@@ -2667,7 +2667,6 @@ VOID handleInstruction(INS ins, VOID *)
     if (libname.find("libmpich.so") != string::npos ||
         libname.find("ld-linux") != string::npos ||
         libname.find("libdl.so") != string::npos ||
-        libname.find("libc.so") != string::npos ||
         libname.find("librt.so") != string::npos ||
         libname.find("libnss") != string::npos ||
         libname.find("libpthread.so") != string::npos ||
