@@ -2166,8 +2166,10 @@ void insertAllocCalls(RTN rtn, AFUNPTR entryFunc, AFUNPTR exitFunc, bool twoArgs
 /*
  * stubs for reporting functions
  */
+VOID saveShadowValue(ADDRINT, ADDRINT);
+VOID saveShadowArray(ADDRINT, ADDRINT, UINT64);
 VOID reportShadowValue(ADDRINT, ADDRINT);
-VOID reportShadowArray(ADDRINT, UINT64, ADDRINT);
+VOID reportShadowArray(ADDRINT, ADDRINT, UINT64);
 
 /*
  * helper for inserting function-based calls
@@ -2306,6 +2308,10 @@ VOID handleRoutine(RTN rtn, VOID *)
                 (AFUNPTR)SHVAL_realloc_exit, true);
     } else if (name == "free" || name == "__libc_free") {
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)SHVAL_free, 1);
+    } else if (name == "SHVAL_saveShadowValue") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveShadowValue, 2);
+    } else if (name == "SHVAL_saveShadowArray") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveShadowArray, 3);
     } else if (name == "SHVAL_reportShadowValue") {
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowValue, 2);
     } else if (name == "SHVAL_reportShadowArray") {
@@ -3100,6 +3106,25 @@ void dumpMemValue(ostream &out, ADDRINT addr, double sys, const char *tag)
 }
 
 /*
+ * user-requested shadow value extraction (single value)
+ */
+VOID saveShadowValue(ADDRINT loc, ADDRINT dest)
+{
+    *(double*)dest = SH_DBL(SHMEM_ACCESS(loc));
+}
+
+/*
+ * user-requested shadow value extraction (multiple values)
+ */
+VOID saveShadowArray(ADDRINT loc, ADDRINT dest, UINT64 size)
+{
+    for (UINT32 i = 0; i < size; i++) {
+        double *dloc = (double*)dest + i*sizeof(double);
+        *dloc = SH_DBL(SHMEM_ACCESS(loc + i*sizeof(double)));
+    }
+}
+
+/*
  * user-requested shadow value reporting (single value)
  */
 VOID reportShadowValue(ADDRINT loc, ADDRINT tag)
@@ -3115,7 +3140,7 @@ VOID reportShadowValue(ADDRINT loc, ADDRINT tag)
 /*
  * user-requested shadow value reporting (multiple values)
  */
-VOID reportShadowArray(ADDRINT loc, UINT64 size, ADDRINT tag)
+VOID reportShadowArray(ADDRINT loc, ADDRINT tag, UINT64 size)
 {
     for (UINT32 i = 0; i < size; i++) {
         ADDRINT iloc = loc + i*sizeof(double);

@@ -33,7 +33,10 @@ int main()
         sum += 0.1;
     }
     SHVAL_reportShadowValue(&sum, "sum");
-    printf("%f\n", sum);
+    printf("result: %f\n", sum);
+    double shv = 0.0;
+    SHVAL_saveShadowValue(&sum, &shv);
+    printf("shadow: %f\n", shv);
     return 0;
 }
 
