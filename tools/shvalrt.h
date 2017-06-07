@@ -28,7 +28,7 @@
  *
  * This should have minimal impact on your program unless you are running under
  * Pin with shadow value analysis, where calls to these functions will trigger
- * shadow value reports that are stored in the log file.
+ * calls to actual functions in the SHVAL library.
  */
 
 #include <stdint.h>
@@ -39,6 +39,9 @@ extern "C" {
 
 void SHVAL_saveShadowValue(double *loc, double *dest);
 void SHVAL_saveShadowArray(double *loc, double *dest, uint64_t size);
+
+void SHVAL_saveError(double *loc, double *dest);
+void SHVAL_saveErrorArray(double *loc, double *dest, uint64_t size);
 
 void SHVAL_reportShadowValue(double *loc, const char *tag);
 void SHVAL_reportShadowArray(double *loc, const char *tag, uint64_t size);

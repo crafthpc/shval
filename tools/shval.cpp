@@ -2168,6 +2168,8 @@ void insertAllocCalls(RTN rtn, AFUNPTR entryFunc, AFUNPTR exitFunc, bool twoArgs
  */
 VOID saveShadowValue(ADDRINT, ADDRINT);
 VOID saveShadowArray(ADDRINT, ADDRINT, UINT64);
+VOID saveError(ADDRINT, ADDRINT);
+VOID saveErrorArray(ADDRINT, ADDRINT, UINT64);
 VOID reportShadowValue(ADDRINT, ADDRINT);
 VOID reportShadowArray(ADDRINT, ADDRINT, UINT64);
 
@@ -2312,6 +2314,10 @@ VOID handleRoutine(RTN rtn, VOID *)
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveShadowValue, 2);
     } else if (name == "SHVAL_saveShadowArray") {
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveShadowArray, 3);
+    } else if (name == "SHVAL_saveError") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveError, 2);
+    } else if (name == "SHVAL_saveErrorArray") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)saveErrorArray, 3);
     } else if (name == "SHVAL_reportShadowValue") {
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowValue, 2);
     } else if (name == "SHVAL_reportShadowArray") {
@@ -3121,6 +3127,26 @@ VOID saveShadowArray(ADDRINT loc, ADDRINT dest, UINT64 size)
     for (UINT32 i = 0; i < size; i++) {
         double *dloc = (double*)dest + i*sizeof(double);
         *dloc = SH_DBL(SHMEM_ACCESS(loc + i*sizeof(double)));
+    }
+}
+
+/*
+ * user-requested shadow error extraction (single value)
+ */
+VOID saveError(ADDRINT loc, ADDRINT dest)
+{
+    *(double*)dest = SH_RELERR(SHMEM_ACCESS(loc), *(double*)loc);
+}
+
+/*
+ * user-requested shadow error extraction (multiple values)
+ */
+VOID saveErrorArray(ADDRINT loc, ADDRINT dest, UINT64 size)
+{
+    for (UINT32 i = 0; i < size; i++) {
+        double *dloc = (double*)dest + i*sizeof(double);
+        *dloc = SH_RELERR(SHMEM_ACCESS(loc + i*sizeof(double)),
+                            *(double*)(loc + i*sizeof(double)));
     }
 }
 
