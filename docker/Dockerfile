@@ -14,26 +14,20 @@ ENV ROOTDIR /root
 # download and extract Pin
 WORKDIR $ROOTDIR/opt
 RUN wget http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-71313-gcc.4.4.7-linux.tar.gz && \
-    tar xf pin-2.14-71313-gcc.4.4.7-linux.tar.gz
+    tar xf pin-2.14-71313-gcc.4.4.7-linux.tar.gz && \
+    rm pin-2.14-71313-gcc.4.4.7-linux.tar.gz
 
-# clone SHVAL repository
+# clone and build SHVAL
 WORKDIR $ROOTDIR/src
 RUN git clone https://github.com/lam2mo/shval.git
-
-# build SHVAL
 WORKDIR $ROOTDIR/src/shval/tools
 RUN bash build.sh
-
-# build tests
-WORKDIR $ROOTDIR/src/shval/tests/arith
-RUN make
-WORKDIR $ROOTDIR/src/shval/tests/sum
-RUN make
 
 # install convenience shell script
 COPY shval /usr/local/bin/
 
 # run example
 WORKDIR $ROOTDIR/src/shval/tests/sum
+RUN make
 CMD ["shval","native64","--","./main"]
 
