@@ -1,0 +1,10 @@
+#!/bin/bash
+
+PIN_ROOT=~/opt/pin-2.14-71313-gcc.4.4.7-linux
+TOOL_DIR=~/src/shval/tools/obj-intel64
+
+mode="$1"
+shift 1
+
+$PIN_ROOT/intel64/bin/pinbin -injection child -t $TOOL_DIR/shval-$mode.so $@
+
