@@ -26,6 +26,13 @@ Dependencies:
 * [Intel Pin 2.14](https://software.intel.com/en-us/articles/pintool-downloads)
   (Tested version: 71313)
 
+See the release notes for limitations on which versions of gcc are compatible.
+For instance, with Pin 2.14 71313 "... you cannot use gcc versions 4.5 or newer
+to compile Probe mode tools ..." Also, with older versions of Pin and 4.x Linux
+kernels, you may have to use the '-ifeellucky' option.
+
+Note: Pin 3.2 removed the pin_isa.H file, required by the unum tool.
+
   Set the `PIN_ROOT` variable in the `./build.sh` script.
 
 To build all tools, use the `./build.sh` command in the `tools` directory. To
