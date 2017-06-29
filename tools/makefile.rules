@@ -48,6 +48,8 @@
 
 UNUMPATH=../extern/unum
 
+POSITPATH=../extern/posit
+
 ##############################################################
 #
 # Test targets
@@ -59,9 +61,15 @@ UNUMPATH=../extern/unum
 # This defines tests which run tools of the same name.  This is simply for convenience to avoid
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
-TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-mpfr \
-    shval-trace \
-    # shval-unum
+TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace
+    # shval-range               # only Pin 2.14
+    # shval-mpfr                # only Pin 2.14
+    # shval-unum                # requires library
+    # shval-posit8e0            # requires library
+    # shval-posit16e1           # requires library
+    # shval-posit16e2           # requires library
+    # shval-posit32e3           # requires library
+    # shval-native80            # only Pin 3.2
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=
@@ -126,6 +134,10 @@ $(OBJDIR)shval-native32$(OBJ_SUFFIX): shval-native32.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-trace$(OBJ_SUFFIX): shval-trace.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-range$(OBJ_SUFFIX): shval-range.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-native80$(OBJ_SUFFIX): shval-native80.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 -Wno-unused-variable $(COMP_OBJ)$@ $<
 
 # the null type raises some compiler warnings that we can safely ignore
 $(OBJDIR)shval-null$(OBJ_SUFFIX): shval-null.cpp shval.cpp
@@ -142,3 +154,21 @@ $(OBJDIR)shval-unum$(OBJ_SUFFIX): shval-unum.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) -I$(UNUMPATH)/src -I$(GMPPATH)/include --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-unum$(PINTOOL_SUFFIX): $(OBJDIR)shval-unum$(OBJ_SUFFIX)
 	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) -L$(GMPPATH)/lib $(TOOL_LIBS) $(UNUMPATH)/src/libunum.a -lgmp
+
+# Posit library needs special linking options
+$(OBJDIR)shval-posit8e0$(OBJ_SUFFIX): shval-posit8e0.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) -I$(POSITPATH)/c-src/include --std=c++11 $(COMP_OBJ)$@ $< -Wno-unused-variable
+$(OBJDIR)shval-posit8e0$(PINTOOL_SUFFIX): $(OBJDIR)shval-posit8e0$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -L$(POSITPATH)/c-src -lfastposit
+$(OBJDIR)shval-posit16e1$(OBJ_SUFFIX): shval-posit16e1.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) -I$(POSITPATH)/c-src/include --std=c++11 $(COMP_OBJ)$@ $< -Wno-unused-variable
+$(OBJDIR)shval-posit16e1$(PINTOOL_SUFFIX): $(OBJDIR)shval-posit16e1$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -L$(POSITPATH)/c-src -lfastposit
+$(OBJDIR)shval-posit16e2$(OBJ_SUFFIX): shval-posit16e2.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) -I$(POSITPATH)/c-src/include --std=c++11 $(COMP_OBJ)$@ $< -Wno-unused-variable
+$(OBJDIR)shval-posit16e2$(PINTOOL_SUFFIX): $(OBJDIR)shval-posit16e2$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -L$(POSITPATH)/c-src -lfastposit
+$(OBJDIR)shval-posit32e3$(OBJ_SUFFIX): shval-posit32e3.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) -I$(POSITPATH)/c-src/include --std=c++11 $(COMP_OBJ)$@ $< -Wno-unused-variable
+$(OBJDIR)shval-posit32e3$(PINTOOL_SUFFIX): $(OBJDIR)shval-posit32e3$(OBJ_SUFFIX)
+	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE)$@ $< $(TOOL_LPATHS) $(TOOL_LIBS) -L$(POSITPATH)/c-src -lfastposit
