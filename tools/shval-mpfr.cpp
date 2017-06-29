@@ -130,7 +130,7 @@ inline double _relerr(mpfr_t v, double x)
     if (tru == 0.0) {
         return (shv == 0.0 ? 0.0 : 1.0);
     } else {
-        return fabs(x - shv) / tru;
+        return fabs(x - shv) / fabs(tru);
     }
 }
 

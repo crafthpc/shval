@@ -70,7 +70,7 @@ static double _relerr_threshold;
 //
 inline double _relerr(float v, double x)
 {
-    return ((x == 0.0) ? (v == 0.0f ? 0.0 : 1.0) : (fabs((double)x-v) / fabs(x)));
+    return ((x == 0.0) ? (v == 0.0f ? 0.0 : 1.0) : (fabs(x-(double)v) / fabs(x)));
 }
 
 inline bool _iserr(float v, double x)
