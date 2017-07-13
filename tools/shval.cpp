@@ -2172,6 +2172,8 @@ VOID saveError(ADDRINT, ADDRINT);
 VOID saveErrorArray(ADDRINT, ADDRINT, UINT64);
 VOID reportShadowValue(ADDRINT, ADDRINT);
 VOID reportShadowArray(ADDRINT, ADDRINT, UINT64);
+VOID clearShadowValue(ADDRINT);
+VOID clearShadowArray(ADDRINT, UINT64);
 
 /*
  * helper for inserting function-based calls
@@ -2322,6 +2324,10 @@ VOID handleRoutine(RTN rtn, VOID *)
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowValue, 2);
     } else if (name == "SHVAL_reportShadowArray") {
         insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)reportShadowArray, 3);
+    } else if (name == "SHVAL_clearShadowValue") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)clearShadowValue, 1);
+    } else if (name == "SHVAL_clearShadowArray") {
+        insertRtnCall(rtn, IPOINT_BEFORE, (AFUNPTR)clearShadowArray, 2);
     } else if (name == KnobReportFunction.Value()) {
         LOG("Reporting shadow values after function \"" + name + "\"\n");
         insertRtnCall(rtn, IPOINT_AFTER, (AFUNPTR)reportShadowValues, 0);
@@ -3176,6 +3182,25 @@ VOID reportShadowArray(ADDRINT loc, ADDRINT tag, UINT64 size)
         } else {
             dumpMemValue(outFile, iloc, sys, (char*)tag);
         }
+    }
+}
+
+/*
+ * user-requested shadow value clearing (single value)
+ */
+VOID clearShadowValue(ADDRINT loc)
+{
+    shadowClearMem64(loc);
+}
+
+/*
+ * user-requested shadow value clearing (multiple values)
+ */
+VOID clearShadowArray(ADDRINT loc, UINT64 size)
+{
+    for (UINT32 i = 0; i < size; i++) {
+        ADDRINT iloc = loc + i*sizeof(double);
+        shadowClearMem64(iloc);
     }
 }
 

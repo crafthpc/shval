@@ -33,3 +33,6 @@ void SHVAL_saveErrorArray(double *loc, double *dest, uint64_t size) { }
 void SHVAL_reportShadowValue(double *loc, const char *tag) { }
 void SHVAL_reportShadowArray(double *loc, const char *tag, uint64_t size) { }
 
+void SHVAL_clearShadowValue(double *loc) { }
+void SHVAL_clearShadowArray(double *loc, uint64_t size) { }
+
