@@ -159,7 +159,6 @@ using namespace std;
  * dependencies: Intel Pin and XED
  */
 #include "pin.H"
-#include "pin_isa.H"
 extern "C" {
 #include "xed-interface.h"
 }
