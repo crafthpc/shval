@@ -41,7 +41,7 @@ ofstream fout;
 int nid = 0;
 
 #define NODE(X,L)   fout << (X) << " [label=\"" << (L) << "\"];" << endl
-#define EDGE(X,Y)   fout << (X) << " -> " << (Y) << endl
+#define EDGE(X,Y)   fout << (X) << " -> " << (Y) << ";" << endl
 
 #define SH_TYPE         int
 #define SH_INFO         "value trace"
@@ -52,7 +52,7 @@ int nid = 0;
 #define SH_ALLOC(V)     ;
 #define SH_FREE(V)      ;
 #define SH_SET(V,X)     NODE(nid,X); (V)=nid++
-#define SH_COPY(V,S)    EDGE(S,nid); NODE(nid,"cpy"); (V)=nid++
+#define SH_COPY(V,S)    (V)=(S)
 #define SH_OUTPUT(O,V)  ;
 #define SH_FINI         fout << "}" << endl; fout.close();
 
