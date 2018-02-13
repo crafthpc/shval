@@ -100,11 +100,18 @@ typedef struct {
                         if ((V)->f64 < (S)->f64) (V)->f64 = (S)->f64; \
                         (V)->id = nid++; NODE(V,"max");
 
-// TODO: finish these
-#define SH_SQRT(V,S)    EDGE((S)->id,nid); NODE(V,"sqrt");  (V)->id = nid++
-#define SH_ABS(V,S)     EDGE((S)->id,nid); NODE(V,"abs");   (V)->id = nid++
-#define SH_NEG(V,S)     EDGE((S)->id,nid); NODE(V,"neg");   (V)->id = nid++
-#define SH_RND(V,S)     EDGE((S)->id,nid); NODE(V,"round"); (V)->id = nid++
+#define SH_SQRT(V,S)    EDGE((S)->id,nid); \
+                        (V)->id = nid++; (V)->f32 /= (S)->f32; (V)->f64 /= (S)->f64; \
+                        NODE(V,"sqrt");
+#define SH_ABS(V,S)     EDGE((S)->id,nid); \
+                        (V)->id = nid++; (V)->f32 /= (S)->f32; (V)->f64 /= (S)->f64; \
+                        NODE(V,"abs");
+#define SH_NEG(V,S)     EDGE((S)->id,nid); \
+                        (V)->id = nid++; (V)->f32 /= (S)->f32; (V)->f64 /= (S)->f64; \
+                        NODE(V,"neg");
+#define SH_RND(V,S)     EDGE((S)->id,nid); \
+                        (V)->id = nid++; (V)->f32 /= (S)->f32; (V)->f64 /= (S)->f64; \
+                        NODE(V,"round");
 
 #define SH_DBL(V)       ((V)->f64)
 #define SH_RELERR(V,X)  (fabs(((V)->f64 - (X)) / ((V)->f64)))
