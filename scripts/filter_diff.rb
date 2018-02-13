@@ -54,8 +54,8 @@ end
 
 # add all edge information to graph
 edges.each do |src,dst|
-  graph[src].out << dst
-  graph[dst].in << src
+  graph[src].out << dst if not graph[src].nil?
+  graph[dst].in << src if not graph[dst].nil?
 end
 
 # TODO: do processing here
