@@ -46,10 +46,16 @@ typedef struct {
     double f64;
 } diff_t;
 
+
 #define NODE(V,L)   fout << (V)->id << " [label=\"" << (L) \
                          << " abserr=" << fabs(((V)->f64 - (V)->f32)) \
-                         << " relerr=" << fabs(((V)->f64 - (V)->f32) / (V)->f64) \
-                         << "\"];" << endl
+                         << " relerr=" << fabs(((V)->f64 - (V)->f32) / (V)->f64); \
+                    if (KnobOnlineTraceInsAddrs.Value()) { \
+                         fout << " addr=" << hex << getCurrentInsAddr() << dec \
+                              << " disas='" << insDisas[getCurrentInsAddr()] \
+                              << "' src=" << getSourceInfo(getCurrentInsAddr()); \
+                    } \
+                    fout << "\"];" << endl;
 #define EDGE(X,Y)   fout << (X) << " -> " << (Y) << ";" << endl
 
 #define SH_TYPE         diff_t*

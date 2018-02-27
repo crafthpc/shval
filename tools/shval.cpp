@@ -206,6 +206,8 @@ KNOB<bool>   KnobSkipSummary(KNOB_MODE_WRITEONCE, "pintool",
         "q", "0", "quiet: don't print summary to stdout (default=0)");
 KNOB<bool>   KnobOnlineCheck(KNOB_MODE_WRITEONCE, "pintool",
         "c", "0", "check values online (expensive!) (default=0)");
+KNOB<bool>   KnobOnlineTraceInsAddrs(KNOB_MODE_WRITEONCE, "pintool",
+        "T", "0", "track instruction addresses (very expensive!) (default=0)");
 KNOB<bool>   KnobOnlineCheckRegs(KNOB_MODE_WRITEONCE, "pintool",
         "C", "0", "check values online, including registers (VERY expensive!) (default=0)");
 KNOB<UINT64> KnobMaximumErrors(KNOB_MODE_WRITEONCE, "pintool",
@@ -226,6 +228,23 @@ static struct timeval endTime;
  * disassembled instructions (used for debugging output)
  */
 static unordered_map<ADDRINT,string> insDisas;
+
+/*
+ * address tracker -- this allows access to the current instruction address in
+ * analysis routines
+ */
+
+static ADDRINT currentInsAddr = 0x0;
+
+void setCurrentInsAddr(ADDRINT addr)
+{
+    currentInsAddr = addr;
+}
+
+ADDRINT getCurrentInsAddr()
+{
+    return currentInsAddr;
+}
 
 
 /******************************************************************************
@@ -2694,6 +2713,12 @@ VOID handleInstruction(INS ins, VOID *)
 
     // save instruction's disassembly
     insDisas[INS_Address(ins)] = INS_Disassemble(ins);
+
+    // save instruction's address (if tracing is enabled)
+    if (KnobOnlineTraceInsAddrs.Value()) {
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)setCurrentInsAddr,
+                IARG_INST_PTR, IARG_END);
+    }
 
     // check non-floating-point instructions for movement to/from a
     // floating-point memory location; otherwise, ignore non-SSE instructions
