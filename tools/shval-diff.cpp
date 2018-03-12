@@ -53,6 +53,7 @@ typedef struct {
                     if (KnobOnlineTraceInsAddrs.Value()) { \
                          fout << " addr=" << hex << getCurrentInsAddr() << dec \
                               << " disas='" << insDisas[getCurrentInsAddr()] \
+                              << "' func='" << insFunc[getCurrentInsAddr()] \
                               << "' src=" << getSourceInfo(getCurrentInsAddr()); \
                     } \
                     fout << "\"];" << endl;

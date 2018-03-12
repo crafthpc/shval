@@ -22,20 +22,20 @@
 
 # a single differential trace computational graph node
 class DiffNode
-  attr_reader :id, :label, :abserr, :relerr, :addr, :disas, :src
+  attr_reader :id, :label, :abserr, :relerr, :addr, :disas, :func, :src
   attr_accessor :in, :out
 
-  def initialize (id, label, abserr, relerr, addr="", disas="", src="")
+  def initialize (id, label, abserr, relerr, addr="", disas="", func="", src="")
     @id, @label, @abserr, @relerr = id, label, abserr, relerr
-    @addr, @disas, @src = addr, disas, src
+    @addr, @disas, @func, @src = addr, disas, func, src
     @in, @out = [], []
   end
 
   # convert to DOT format (including outgoing edges)
   def to_s
     "#{@id.to_s} [label=\"#{@label.to_s}" +
-    " abserr=#{@abserr.to_s} relerr=#{@relerr.to_s}" + 
-    " addr=#{@addr} disas='#{@disas}' src=#{@src}\"];\n" +
+    " abserr=#{@abserr.to_s} relerr=#{@relerr.to_s}" +
+    " addr=#{@addr} disas='#{@disas}' func='#{@func}' src=#{@src}\"];\n" +
     @out.map { |id| "#{@id} -> #{id};" }.join("\n")
   end
 
@@ -47,8 +47,8 @@ edges = []            # list of [src,dst] pairs
 
 # load graph from DOT file
 ARGF.each_line do |line|
-  if line =~ /^(\d+) \[label="([^ ]*) abserr=([^ ]*) relerr=([^ ]*) addr=([0-9a-f]*) disas='([^']*)' src=([^ ]*)"\];$/
-    graph[$1.to_i] = DiffNode.new($1.to_i, $2, $3.to_f, $4.to_f, $5, $6, $7)
+  if line =~ /^(\d+) \[label="([^ ]*) abserr=([^ ]*) relerr=([^ ]*) addr=([0-9a-f]*) disas='([^']*)' func='([^']*)' src=([^ ]*)"\];$/
+    graph[$1.to_i] = DiffNode.new($1.to_i, $2, $3.to_f, $4.to_f, $5, $6, $7, $8)
   elsif line =~ /^(\d+) \[label="([^ ]*) abserr=([^ ]*) relerr=([^ ]*)"\];$/
     graph[$1.to_i] = DiffNode.new($1.to_i, $2, $3.to_f, $4.to_f)
   elsif line =~ /^(\d+) -> (\d+);$/

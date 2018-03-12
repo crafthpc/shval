@@ -228,6 +228,7 @@ static struct timeval endTime;
  * disassembled instructions (used for debugging output)
  */
 static unordered_map<ADDRINT,string> insDisas;
+static unordered_map<ADDRINT,string> insFunc;
 
 /*
  * address tracker -- this allows access to the current instruction address in
@@ -2711,8 +2712,9 @@ VOID handleInstruction(INS ins, VOID *)
         return;
     }
 
-    // save instruction's disassembly
+    // save instruction's disassembly and function name
     insDisas[INS_Address(ins)] = INS_Disassemble(ins);
+    insFunc[INS_Address(ins)]  = RTN_Name(INS_Rtn(ins));
 
     // save instruction's address (if tracing is enabled)
     if (KnobOnlineTraceInsAddrs.Value()) {
