@@ -46,6 +46,10 @@ command-line options to customize their runtime behavior. To see descriptions of
 each tool's options, run the tool without an app. These options must be
 specified after the tool library but before the `--` separator.
 
+## Papers
+
+* "[Floating-Point Shadow Value Analysis](http://dl.acm.org/citation.cfm?id=3018826)" (ESPT'16 at SC'16)
+
 ## Authors
 
 SHVAL was originally written by Michael O. Lam, lam26@llnl.gov.
