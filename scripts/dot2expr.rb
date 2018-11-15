@@ -21,12 +21,30 @@
 # 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 #
 
+require 'getoptlong'
 require 'set'
 
+#
+# global variables and data structures
+#
+
+$int_pct = nil          # percentage of intermediates to separate out
 $ids = Set.new          # all node ids
 $label = Hash.new       # id -> value/operation (string)
 $children = Hash.new    # parent => [child]
 $parent = Hash.new      # child => parent
+$uses = Hash.new(0)     # id -> uses
+
+#
+# helper functions
+#
+
+def count_uses(e)
+  $uses[e] += 1
+  if $children.has_key?(e)
+    $children[e].each {|c| count_uses(c)}
+  end
+end
 
 def print_expr(e)
   if not $children.has_key?(e)      # leaf
@@ -47,8 +65,35 @@ def print_expr(e)
   end
 end
 
-ARGF.each_line do |line|
-  if line =~ /^(\d+) \[label="([^ "]+)/ then             # new node
+#
+# main routine
+#
+
+# parse command-line parameters
+opts = GetoptLong.new(
+  [ '--help', '-h', GetoptLong::NO_ARGUMENT ],
+  [ '--intermediates', '-i', GetoptLong::REQUIRED_ARGUMENT ],
+)
+opts.each do |opt, arg|
+  case opt
+  when '--help'
+    puts <<-EOF
+dot2expr [options] <dot-filename>
+
+  -h, --help                    print usage text
+  -i, --intermediates <p>       convert p% of outputs to intermediates
+    EOF
+  when '--intermediates'
+    $int_pct = arg.to_f
+  end
+end
+if ARGV.length != 1
+  puts "Missing filename (run w/ --help for usage info)"
+  exit
+end
+
+IO.foreach(ARGV.shift) do |line|
+  if line =~ /^(\d+) \[label="([^ "]+)/ then            # new node
     $label[$1] = $2
     $ids << $1
   elsif line =~ /^(\d+) -> (\d+)/ then                  # new edge
@@ -59,9 +104,33 @@ ARGF.each_line do |line|
   end
 end
 
+if not $int_pct.nil?
+
+  # calculate intermediate usage information
+  $ids.each { |id| count_uses(id) if not $parent.has_key?(id) }
+
+  # sort intermediates in order of decreasing use
+  intermediates = $uses.to_a.sort { |a,b| b[1] <=> a[1] }
+
+  # separate out half of intermediates into a temporary variable
+  tmps = intermediates.take(intermediates.size * $int_pct)
+  tmps.each_index do |i|
+    id = tmps[i][0]
+    old_label = $label[id]
+    new_label = "t#{i}"
+    print "#{new_label} = "
+    print_expr(id)
+    puts
+    $label[id] = new_label
+    $children[id] = []
+  end
+
+end
+
+# print each root
 $ids.each do |id|
   if not $parent.has_key?(id)
-    print_expr(id)                  # print each root
+    print_expr(id)
     puts
   end
 end
