@@ -10,8 +10,12 @@ def print_expr(e)
   if not $children.has_key?(e)      # leaf
     print $label[e]
   elsif $children[e].size == 1      # unary
+    print "("
     print $label[e]
+    print "("
     print_expr($children[e][0])
+    print ")"
+    print ")"
   else                              # binary
     print "("
     print_expr($children[e][0])
