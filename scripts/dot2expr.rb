@@ -22,7 +22,7 @@ def print_expr(e)
 end
 
 ARGF.each_line do |line|
-  if line =~ /^(\d+) \[label="([^ ]+)/ then             # new node
+  if line =~ /^(\d+) \[label="([^ "]+)/ then             # new node
     $label[$1] = $2
     $ids << $1
   elsif line =~ /^(\d+) -> (\d+)/ then                  # new edge
@@ -36,5 +36,6 @@ end
 $ids.each do |id|
   if not $parent.has_key?(id)
     print_expr(id)                  # print each root
+    puts
   end
 end
