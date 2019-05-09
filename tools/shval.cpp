@@ -146,6 +146,7 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 using namespace std;
 
 /*
@@ -212,6 +213,8 @@ KNOB<bool>   KnobOnlineCheckRegs(KNOB_MODE_WRITEONCE, "pintool",
         "C", "0", "check values online, including registers (VERY expensive!) (default=0)");
 KNOB<UINT64> KnobMaximumErrors(KNOB_MODE_WRITEONCE, "pintool",
         "m", "1000", "maximum online errors to report before aborting (default=1000)");
+KNOB<string> KnobFilterFunctions(KNOB_MODE_WRITEONCE, "pintool",
+        "F", "", "filtered function list");
 
 /*
  * application info and output file
@@ -223,6 +226,7 @@ static string outFilename = DEFAULT_OUT_FN;
 static ofstream outFile;
 static struct timeval startTime;
 static struct timeval endTime;
+static set<string> filterList;
 
 /*
  * disassembled instructions (used for debugging output)
@@ -2693,6 +2697,13 @@ VOID handleInstruction(INS ins, VOID *)
         return;
     }
 
+    // if enabled, skip routines that aren't in the filter list
+    string rtnName = RTN_Name(routine);
+    cout << "checking for " << rtnName << endl;
+    //if (filterList.size() > 0 && filterList.find(rtnName) == filterList.end()) {
+        //return;
+    //}
+
     // skip invalid images
     IMG image = SEC_Img(RTN_Sec(routine));
     if (!IMG_Valid(image)) {
@@ -3420,6 +3431,12 @@ int main(int argc, char* argv[])
                   " floating-point arithmetic\n"
                 + KNOB_BASE::StringKnobSummary() + "\n");
         return -1;
+    }
+
+    // initialize function filtering
+    if (KnobFilterFunctions.Value() != "") {
+        // TODO: comma-separated function names
+        filterList.insert(KnobFilterFunctions.Value());
     }
 
     // initialize shadow value data type
