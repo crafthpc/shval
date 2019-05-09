@@ -3,7 +3,7 @@
 # Run the SHVAL pintool; assumes you have it checked out in $SHVAL_ROOT and that
 # Pin is installed in $PIN_ROOT.
 #
-# This file is part of SHVAL. For details, see https://github.com/lam2mo/shval
+# This file is part of SHVAL. For details, see https://github.com/crafthpc/shval
 #
 # Please also see the LICENSE file for our notice and the LGPL.
 #

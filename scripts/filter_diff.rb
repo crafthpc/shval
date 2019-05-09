@@ -2,7 +2,7 @@
 #
 # Filter and modify a computation graph produced by the "diff" tool.
 #
-# This file is part of SHVAL. For details, see https://github.com/lam2mo/shval
+# This file is part of SHVAL. For details, see https://github.com/crafthpc/shval
 #
 # Please also see the LICENSE file for our notice and the LGPL.
 #

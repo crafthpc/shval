@@ -4,7 +4,7 @@
  * Written by Michael O. Lam, lam26@llnl.gov. LLNL-CODE-729118.
  * All rights reserved.
  *
- * This file is part of SHVAL. For details, see https://github.com/lam2mo/shval
+ * This file is part of SHVAL. For details, see https://github.com/crafthpc/shval
  *
  * Please also see the LICENSE file for our notice and the LGPL.
  *

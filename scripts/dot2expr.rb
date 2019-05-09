@@ -3,7 +3,7 @@
 # Convert a computation graph produced by the "trace" tool (and stored in DOT
 # format) to real-valued expressions.
 #
-# This file is part of SHVAL. For details, see https://github.com/lam2mo/shval
+# This file is part of SHVAL. For details, see https://github.com/crafthpc/shval
 #
 # Please also see the LICENSE file for our notice and the LGPL.
 #

@@ -19,7 +19,7 @@ RUN wget http://software.intel.com/sites/landingpage/pintool/downloads/pin-2.14-
 
 # clone and build SHVAL
 WORKDIR $ROOTDIR/src
-RUN git clone https://github.com/lam2mo/shval.git
+RUN git clone https://github.com/crafthpc/shval.git
 WORKDIR $ROOTDIR/src/shval/tools
 RUN bash build.sh
 
