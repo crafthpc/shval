@@ -69,7 +69,7 @@ TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace shval-di
     # shval-posit16e1           # requires library
     # shval-posit16e2           # requires library
     # shval-posit32e3           # requires library
-    # shval-native80            # only Pin 3.2
+    # shval-native80            # only Pin 3.x
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=

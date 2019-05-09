@@ -25,7 +25,7 @@
 
 # PIN_ROOT should point to Pin installation
 #export PIN_ROOT="/shared/pin-2.14-71313-gcc.4.4.7-linux"
-export PIN_ROOT="/shared/pin-3.6-97554-g31f0a167d-gcc-linux"
+#export PIN_ROOT="/shared/pin-3.6-97554-g31f0a167d-gcc-linux"
 
 # create output folder
 mkdir -p obj-intel64
