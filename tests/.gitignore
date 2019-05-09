@@ -1,4 +1,6 @@
 main
 *.log
-trace.dot
-trace.png
+*.dot
+*.png
+*.svg
+*.txt
