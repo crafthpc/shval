@@ -61,7 +61,7 @@ POSITPATH=../extern/posit
 # This defines tests which run tools of the same name.  This is simply for convenience to avoid
 # defining the test name twice (once in TOOL_ROOTS and again in TEST_ROOTS).
 # Tests defined here should not be defined in TOOL_ROOTS and TEST_ROOTS.
-TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace
+TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace shval-diff
     # shval-range               # only Pin 2.14
     # shval-mpfr                # only Pin 2.14
     # shval-unum                # requires library
@@ -69,7 +69,7 @@ TEST_TOOL_ROOTS := shval-null shval-native32 shval-native64 shval-trace
     # shval-posit16e1           # requires library
     # shval-posit16e2           # requires library
     # shval-posit32e3           # requires library
-    # shval-native80            # only Pin 3.2
+    # shval-native80            # only Pin 3.x
 
 # This defines the tests to be run that were not already defined in TEST_TOOL_ROOTS.
 TEST_ROOTS :=
@@ -133,6 +133,8 @@ $(OBJDIR)shval-native64$(OBJ_SUFFIX): shval-native64.cpp shval.cpp
 $(OBJDIR)shval-native32$(OBJ_SUFFIX): shval-native32.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-trace$(OBJ_SUFFIX): shval-trace.cpp shval.cpp
+	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
+$(OBJDIR)shval-diff$(OBJ_SUFFIX): shval-diff.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<
 $(OBJDIR)shval-range$(OBJ_SUFFIX): shval-range.cpp shval.cpp
 	$(CXX) $(TOOL_CXXFLAGS) --std=c++11 $(COMP_OBJ)$@ $<

@@ -146,6 +146,7 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 using namespace std;
 
 /*
@@ -159,7 +160,6 @@ using namespace std;
  * dependencies: Intel Pin and XED
  */
 #include "pin.H"
-#include "pin_isa.H"
 extern "C" {
 #include "xed-interface.h"
 }
@@ -207,10 +207,14 @@ KNOB<bool>   KnobSkipSummary(KNOB_MODE_WRITEONCE, "pintool",
         "q", "0", "quiet: don't print summary to stdout (default=0)");
 KNOB<bool>   KnobOnlineCheck(KNOB_MODE_WRITEONCE, "pintool",
         "c", "0", "check values online (expensive!) (default=0)");
+KNOB<bool>   KnobOnlineTraceInsAddrs(KNOB_MODE_WRITEONCE, "pintool",
+        "T", "0", "track instruction addresses (very expensive!) (default=0)");
 KNOB<bool>   KnobOnlineCheckRegs(KNOB_MODE_WRITEONCE, "pintool",
         "C", "0", "check values online, including registers (VERY expensive!) (default=0)");
 KNOB<UINT64> KnobMaximumErrors(KNOB_MODE_WRITEONCE, "pintool",
         "m", "1000", "maximum online errors to report before aborting (default=1000)");
+KNOB<string> KnobFilterFunctions(KNOB_MODE_WRITEONCE, "pintool",
+        "F", "", "filtered function list");
 
 /*
  * application info and output file
@@ -222,11 +226,30 @@ static string outFilename = DEFAULT_OUT_FN;
 static ofstream outFile;
 static struct timeval startTime;
 static struct timeval endTime;
+static set<string> filterList;
 
 /*
  * disassembled instructions (used for debugging output)
  */
 static unordered_map<ADDRINT,string> insDisas;
+static unordered_map<ADDRINT,string> insFunc;
+
+/*
+ * address tracker -- this allows access to the current instruction address in
+ * analysis routines
+ */
+
+static ADDRINT currentInsAddr = 0x0;
+
+void setCurrentInsAddr(ADDRINT addr)
+{
+    currentInsAddr = addr;
+}
+
+ADDRINT getCurrentInsAddr()
+{
+    return currentInsAddr;
+}
 
 
 /******************************************************************************
@@ -2674,6 +2697,13 @@ VOID handleInstruction(INS ins, VOID *)
         return;
     }
 
+    // if enabled, skip routines that aren't in the filter list
+    string rtnName = RTN_Name(routine);
+    cout << "checking for " << rtnName << endl;
+    //if (filterList.size() > 0 && filterList.find(rtnName) == filterList.end()) {
+        //return;
+    //}
+
     // skip invalid images
     IMG image = SEC_Img(RTN_Sec(routine));
     if (!IMG_Valid(image)) {
@@ -2693,8 +2723,15 @@ VOID handleInstruction(INS ins, VOID *)
         return;
     }
 
-    // save instruction's disassembly
+    // save instruction's disassembly and function name
     insDisas[INS_Address(ins)] = INS_Disassemble(ins);
+    insFunc[INS_Address(ins)]  = RTN_Name(INS_Rtn(ins));
+
+    // save instruction's address (if tracing is enabled)
+    if (KnobOnlineTraceInsAddrs.Value()) {
+        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)setCurrentInsAddr,
+                IARG_INST_PTR, IARG_END);
+    }
 
     // check non-floating-point instructions for movement to/from a
     // floating-point memory location; otherwise, ignore non-SSE instructions
@@ -3394,6 +3431,12 @@ int main(int argc, char* argv[])
                   " floating-point arithmetic\n"
                 + KNOB_BASE::StringKnobSummary() + "\n");
         return -1;
+    }
+
+    // initialize function filtering
+    if (KnobFilterFunctions.Value() != "") {
+        // TODO: comma-separated function names
+        filterList.insert(KnobFilterFunctions.Value());
     }
 
     // initialize shadow value data type
