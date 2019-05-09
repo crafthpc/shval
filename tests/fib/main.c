@@ -49,9 +49,9 @@ double rec(double n)
 int main()
 {
     double i = iter(10);
-    /*double r = rec(6.0);*/
+    double r = rec(6.0);
     SHVAL_reportShadowValue(&i, "iter");
-    /*SHVAL_reportShadowValue(&r, "rec");*/
+    SHVAL_reportShadowValue(&r, "rec");
     /*printf(" %f %f\n", i, r);*/
     return 0;
 }

@@ -57,7 +57,6 @@ edges.each do |src,dst|
   graph[dst].in << src
 end
 
-# TODO: do processing here
 # for example, keep only nodes with at least incoming or outgoing edge
 graph.select! { |id,node| node.in.size > 0 or node.out.size > 0 }
 

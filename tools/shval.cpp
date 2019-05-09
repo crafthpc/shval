@@ -2699,10 +2699,10 @@ VOID handleInstruction(INS ins, VOID *)
 
     // if enabled, skip routines that aren't in the filter list
     string rtnName = RTN_Name(routine);
-    cout << "checking for " << rtnName << endl;
-    //if (filterList.size() > 0 && filterList.find(rtnName) == filterList.end()) {
-        //return;
-    //}
+    //cout << "checking for " << rtnName << endl;
+    if (filterList.size() > 0 && filterList.find(rtnName) == filterList.end()) {
+        return;
+    }
 
     // skip invalid images
     IMG image = SEC_Img(RTN_Sec(routine));
