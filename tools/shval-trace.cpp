@@ -34,10 +34,10 @@
 
 #include "pin.H"
 
-KNOB<string> KnobOutputFilename(KNOB_MODE_WRITEONCE, "pintool",
+KNOB<std::string> KnobOutputFilename(KNOB_MODE_WRITEONCE, "pintool",
         "of", "trace.dot", "output filename for dot graph (default=trace.dot)");
 
-ofstream fout;
+std::ofstream fout;
 int nid = 0;
 
 #define NODE(X,L)   fout << (X) << " [label=\"" << (L) << "\"];" << endl
