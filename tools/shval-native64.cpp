@@ -62,12 +62,14 @@ inline double _relerr(double v, double x)
     return ((x == 0.0) ? (v == 0.0 ? 0.0 : 1.0) : (fabs((double)x-v) / fabs(x)));
 }
 
+bool is_nan(double x) { return x != x; }
+
 // native64 only: must match exactly or both be NaNs
 //
 inline bool _iserr(double v, double x)
 {
-    bool vnan = isnan(v);
-    bool xnan = isnan(x);
+    bool vnan = is_nan(v);
+    bool xnan = is_nan(x);
     return ( vnan && !xnan) ||
            (!vnan &&  xnan) ||
            (!vnan && !xnan && v != x);
