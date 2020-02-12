@@ -62,6 +62,7 @@ inline double _relerr(double v, double x)
     return ((x == 0.0) ? (v == 0.0 ? 0.0 : 1.0) : (fabs((double)x-v) / fabs(x)));
 }
 
+// Returns true if x is not a number and false otherwise.
 bool is_nan(double x) { return x != x; }
 
 // native64 only: must match exactly or both be NaNs

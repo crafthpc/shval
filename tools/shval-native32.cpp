@@ -73,6 +73,7 @@ inline double _relerr(float v, double x)
     return ((x == 0.0) ? (v == 0.0f ? 0.0 : 1.0) : (fabs(x-(double)v) / fabs(x)));
 }
 
+// Returns true if x is not a number and false otherwise.
 bool is_nan(double x) { return x != x; }
 
 inline bool _iserr(float v, double x)
