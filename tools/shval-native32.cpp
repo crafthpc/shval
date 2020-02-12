@@ -26,7 +26,7 @@
  * Shadow value analysis using the native 32-bit floating point data type
  */
 
-#include <math.h>
+#include <cmath>
 
 #include "pin.H"
 
@@ -73,10 +73,13 @@ inline double _relerr(float v, double x)
     return ((x == 0.0) ? (v == 0.0f ? 0.0 : 1.0) : (fabs(x-(double)v) / fabs(x)));
 }
 
+// Returns true if x is not a number and false otherwise.
+bool is_nan(double x) { return x != x; }
+
 inline bool _iserr(float v, double x)
 {
-    bool vnan = isnan(v);
-    bool xnan = isnan(x);
+    bool vnan = is_nan(v);
+    bool xnan = is_nan(x);
     return ( vnan && !xnan) ||
            (!vnan &&  xnan) ||
            (!vnan && !xnan && _relerr(v,x) > _relerr_threshold);
