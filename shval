@@ -1,4 +1,4 @@
-#!/bin/bash
+#/bin/bash
 #
 # Run the SHVAL pintool; assumes you have it checked out in $SHVAL_ROOT and that
 # Pin is installed in $PIN_ROOT.
@@ -25,6 +25,7 @@ TOOL_PATH=$SHVAL_ROOT/tools/obj-intel64
 
 # parse command-line options
 MODE="invalid"
+OPTS=""
 DOTOUT="dot"
 while getopts ":hnfdTDpst" OPTION; do
     case $OPTION in
@@ -46,8 +47,10 @@ while getopts ":hnfdTDpst" OPTION; do
     n)  MODE="null" ;;
     f)  MODE="native32" ;;
     d)  MODE="native64" ;;
-    T)  MODE="trace" ;;
-    D)  MODE="diff" ;;
+    T)  MODE="trace"
+        OPTS="-T" ;;
+    D)  MODE="diff"
+        OPTS="-T" ;;
     p)  DOTOUT="png" ;;
     s)  DOTOUT="svg" ;;
     t)  DOTOUT="txt" ;;
@@ -66,7 +69,7 @@ if [[ -z "$@" ]]; then
 fi
 
 # run Pintool
-$PIN_ROOT/pin -t $TOOL_PATH/shval-$MODE.so -- $@
+$PIN_ROOT/pin -t $TOOL_PATH/shval-$MODE.so $OPTS -- $@
 
 # clean up dot output
 if [[ -e "trace.dot" ]]; then
