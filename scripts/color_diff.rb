@@ -190,7 +190,12 @@ graph.each do |id,node|
 end
 
 # color each node accordingly
-factor = (max == 0) ? 0 : 0xff.to_f / max
+if max == 0
+  factor = 0
+else
+  factor = (0xff.to_f / max).finite? ? 0xff.to_f / max : 0
+end
+
 graph.each do |id,node|
   err = $relative ? node.relerr : node.abserr
   node.color -= (err * factor).round
@@ -204,7 +209,12 @@ clusters.each do |id,node|
 end
 
 # color each cluster accordingly
-factor = (max == 0) ? 0 : 0xff.to_f / max
+if max == 0
+  factor = 0
+else
+  factor = (0xff.to_f / max).finite? ? 0xff.to_f / max : 0
+end
+
 clusters.each do |name, cluster|
   err = $relative ? cluster.relerr : cluster.abserr
   cluster.color += (err * factor).round
